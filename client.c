@@ -19,11 +19,20 @@ int main()
 	int read_num;
 	FILE *file_fd;
 	char server_ip[IP_LENGTH];
-
-	printf("Server IP: ");
-	fflush(stdout);
-	scanf("%s", server_ip);
-	printf("\n%s\n", server_ip);	
+	while(1)
+	{
+		printf("Server IP: ");
+		fflush(stdout);		
+		scanf("%s", server_ip);
+		if(strlen(server_ip) > 15)
+		{
+			printf("Buffer Overflow. Try again~\n");
+			fflush(stdout);	
+		}
+		else
+			break;	
+	}	
+	printf("Server IP is : %s\n", server_ip);	
 
 	//initial socket
 	if ( (client_fd = socket(AF_INET,SOCK_STREAM,0)) < 0)
