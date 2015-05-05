@@ -1,119 +1,96 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <fcntl.h>
+#include <stdlib.h>     // for exit
+#include <stdio.h>      // for printf
+#include <string.h>     // for bzero
+#include <sys/socket.h> // for socket
+#include <sys/types.h>  // for socket
+#include <netinet/in.h> // for sockaddr_in
+#include <arpa/inet.h>  //for inet_addr
+#include <fcntl.h>      // for open
+#include <unistd.h>     // for close
 
-#define BIND_PORT 45566
-#define MAX_BUFF 65535
+#define PORT 45566
+#define LENGTH_OF_LISTEN_QUEUE 1
+#define BUFFER_SIZE 65535
+#define FILE_NAME_LENGTH 65535
 
 int main()
 {
-	int server_fd;
-	int client_fd;
-	socklen_t client_size;
-	struct sockaddr_in server_content;
-	struct sockaddr_in client_content;
-	int read_num = 0;
-	char read_buf[MAX_BUFF];
-	char write_buf[MAX_BUFF];
-	FILE *fp;
-	int n_bytes = 0;
-	char *warning_string = "Cannot open file , try another one.\n";
-	
-	// socket initial: socket()
-	if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
-		perror("socket error.\n");
-		exit(1);
-	}
+    struct sockaddr_in server_addr;
+    bzero(&server_addr, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+    server_addr.sin_port = htons(PORT);
 
-	// initial sockaddr
-	bzero(&server_content, sizeof(server_content));
-	server_content.sin_family=AF_INET;
-	server_content.sin_port=htons(BIND_PORT);
-	server_content.sin_addr.s_addr=INADDR_ANY;
+    int server_socket;
+    if((server_socket = socket(AF_INET, SOCK_STREAM, 0)) < 0){
+        printf("Create Socket Failed!");
+        exit(1);
+    }
 
-	// bind()
-	if (bind(server_fd, (struct sockaddr*)&server_content, sizeof(server_content)) != 0){
-		perror("bind error.\n");
-		exit(1);
-	}
-	
-	// listen()
-	if ((listen(server_fd,5)) != 0){
-		perror("listen error.\n");
-		exit(1);
-	}
+    if(bind(server_socket, (struct sockaddr*)&server_addr, sizeof(server_addr))){
+        printf("Bind Failed!");
+        exit(1);
+    }
 
-	while(1){		
-		// initial client information
-		bzero(&client_content, sizeof(client_content));
-		client_size = sizeof(client_content);
-		client_fd = -1;
+    if(listen(server_socket, LENGTH_OF_LISTEN_QUEUE)){
+        printf("Server Listen Failed!");
+        exit(1);
+    } 
+    
+    while (1){
+        printf("Server is Listening......\n");
+        fflush(stdout);
 
-		printf("Wait for client command.\n");
-		fflush(stdout);		
-		
-		// accept connection from client: accept()
-		client_fd = accept(server_fd, (struct sockaddr*)&client_content, &client_size);
-		if (client_fd == -1){
-			printf("accept connection fail , try again.\n");
-			continue;
-		}
-				
-		// receive command from client and reutrn the data: recv()
-		while (1){
-			memset(read_buf, '\0', sizeof(read_buf));
-			n_bytes = recv(client_fd, read_buf, sizeof(read_buf), 0);
-			
-			if (n_bytes == 0 || NULL) //connection close
-				break;
-			if (read_buf[strlen(read_buf)-1]=='\n')
-				read_buf[strlen(read_buf)-1]='\0';
-			if (read_buf[0]=='\0')
-				continue;
+        struct sockaddr_in client_addr;
+        socklen_t length = sizeof(client_addr);
 
-			printf("Open %s\n", read_buf);
-			fflush(stdout);
+        int client_socket = accept(server_socket, (struct sockaddr*)&client_addr, &length);
+        if (client_socket < 0){
+            printf("Accept Failed!\n");
+            break;
+        }
 
-			// open file error
-			fp = fopen(read_buf, "rb");
-			if (fp == NULL){
-				printf("Open %s fail.\n", read_buf);
-				fflush(stdout);
-				strncpy(write_buf, warning_string, strlen(warning_string));
+        char buffer[BUFFER_SIZE];
+        bzero(buffer, BUFFER_SIZE);
+        
+        int recv_length = recv(client_socket, buffer, BUFFER_SIZE, 0);
+        if (recv_length < 0)
+        {
+            printf("Recieve Command Failed!\n");
+            break;
+        }
 
-				if ((send(client_fd, write_buf, strlen(write_buf), 0)) == -1)
-				{
-					printf("Write to client fail.\n");
-					fflush(stdout);
-				}	
+        char file_name[FILE_NAME_LENGTH+1];
+        bzero(file_name, FILE_NAME_LENGTH+1);
+        strncpy(file_name, buffer, strlen(buffer) > FILE_NAME_LENGTH ? FILE_NAME_LENGTH : strlen(buffer));
 
-				continue;
-			}
+        FILE * fp = fopen(file_name,"rb");
+        if(fp == NULL){
+            printf("File Not Found\n");
+        }
+        else
+        {
+            bzero(buffer, BUFFER_SIZE);
+            int read_length = 0;
 
-			// send file
-			while((n_bytes = fread(write_buf, sizeof(char), sizeof(write_buf), fp)) > 0){			
-			//while(fp != NULL){
-			//while (read(file_fp, write_buf, sizeof(write_buf)) > 0){
-				//n_bytes = fread(write_buf, sizeof(char), sizeof(write_buf), fp);
-				send(client_fd, write_buf, n_bytes, 0);
-				bzero(&write_buf, sizeof(write_buf));
-			}
+            while((read_length = fread(buffer, sizeof(char), BUFFER_SIZE, fp)) > 0){
 
-			printf("Write to client end.\n");
-			fflush(stdout);
-			fclose(fp);
-		}
+                if(send(client_socket, buffer, read_length, 0) < 0){
+                    printf("Send File Failed\n");
+                    break;
+                }
+                bzero(buffer, BUFFER_SIZE);
+            }
 
-	}
-	
-	// close socket: close()
-	close(client_fd);
-	close(server_fd);
-	
-	return 0;
+            fclose(fp);
+            printf("File Transfer Finished\n\n");
+        }
 
+        close(client_socket);
+
+    }
+    
+
+    close(server_socket);
+    return 0;
 }
